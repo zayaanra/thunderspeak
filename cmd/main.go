@@ -1,21 +1,28 @@
 package main
 
 import (
-	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/gorilla/mux"
+	https "github.com/zayaanra/thunderspeak/https/server"
 )
 
 func main() {
-	r := mux.NewRouter()
-
-	// Define the path to the HTML directory
-	htmlDir := "../http/frontend/src"
-
-	// Serve HTML files from the "frontend/src" directory
-	fs := http.FileServer(http.Dir(htmlDir))
-	r.PathPrefix("/").Handler(http.StripPrefix("/", fs))
-
 	// Start the HTTP server on port 8080
-	http.ListenAndServe("localhost:8080", r)
+	s := https.NewServer()
+
+	if err := s.Open(); err != nil {
+		panic(err)
+	}
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+
+	<-sig
+
+	if err := s.Close(); err != nil {
+		panic(err)
+	}
+
 }
