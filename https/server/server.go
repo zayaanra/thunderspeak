@@ -1,9 +1,13 @@
 package https
 
 import (
+	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
+
+	"github.com/zayaanra/thunderspeak/api"
 
 	"github.com/gorilla/mux"
 )
@@ -20,6 +24,8 @@ type Server struct {
 
 	// The server's directory to serve HTML files from.
 	Dir string
+
+	rooms map[*api.Room]bool
 }
 
 func NewServer() *Server {
@@ -31,14 +37,14 @@ func NewServer() *Server {
 		Domain: "localhost",
 
 		Dir: "../https/frontend/src",
+
+		rooms: make(map[*api.Room]bool),
 	}
 
 	s.server.Handler = http.HandlerFunc(s.serveHTTP)
 
-	// Set up handling of invalid routes.
-	s.router.NotFoundHandler = http.HandlerFunc(s.handleNotFound)
-
 	s.router.HandleFunc("/", s.handleIndex)
+	s.router.HandleFunc("/ws", s.handleWS)
 
 	fs := http.FileServer(http.Dir(s.Dir))
 	s.router.PathPrefix("/").Handler(http.StripPrefix("/", fs))
@@ -63,9 +69,13 @@ func (s *Server) Close() error {
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		log.Println("POST")
+		log.Printf("POST - %s\n", r.URL.Path)
+		switch r.URL.Path {
+		case "/api/createRoom":
+			s.createRoom()
+		}
 	} else if r.Method == http.MethodGet {
-		log.Println("GET")
+		log.Printf("GET - %s\n", r.URL.Path)
 	}
 
 	s.router.ServeHTTP(w, r)
@@ -76,7 +86,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, s.Dir+"/index.html")
 }
 
-func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
-	log.Println("NOT FOUND")
-	http.NotFound(w, r)
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	api.ServeWS(w, r)
+}
+
+func (s *Server) createRoom() *api.Room {
+	roomName := rand.Intn(1000000)
+	room := api.NewRoom(fmt.Sprintf("%d", roomName))
+
+	log.Printf("Created room - %v\n", room)
+
+	return room
 }
