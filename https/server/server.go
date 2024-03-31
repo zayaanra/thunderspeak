@@ -1,7 +1,9 @@
 package https
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -26,6 +28,10 @@ type Server struct {
 	Dir string
 
 	rooms map[*api.Room]bool
+}
+
+type Username struct {
+	Username string `json:"username"`
 }
 
 func NewServer() *Server {
@@ -74,15 +80,18 @@ func (s *Server) Close() error {
 // Listens for API HTTP requests and responds accordingly
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-
-	} else if r.Method == http.MethodGet {
 		switch r.URL.Path {
 		case "/api/createRoom":
-			room := s.createRoom()
+			room := s.createRoom(w, r)
 			http.Redirect(w, r, "/room/"+room.Name(), http.StatusSeeOther)
 			return
+		case "/api/joinRoom":
+			log.Println("Attempting to join room")
 		}
-	}
+		// TODO: Process API request for joining a room
+	} //else if r.Method == http.MethodGet {
+
+	// }
 
 	s.router.ServeHTTP(w, r)
 
@@ -98,7 +107,7 @@ func (s *Server) handleRoom(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	room_code := vars["room_code"]
 
-	if !s.roomExists(room_code) {
+	if _, exists := s.roomExists(room_code); !exists {
 		http.NotFound(w, r)
 	} else {
 		http.ServeFile(w, r, s.Dir+"/room.html")
@@ -112,24 +121,43 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handles API request to create a room
-func (s *Server) createRoom() *api.Room {
+func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) *api.Room {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	var username Username
+	err = json.Unmarshal(body, &username)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
 	// Generate random room code and create room
 	roomName := rand.Intn(1000000)
 	room := api.NewRoom(fmt.Sprintf("%d", roomName))
 
-	// Mark room as false to indicate that it is empty
-	s.rooms[room] = false
-
-	log.Printf("Created room - %v\n", room)
+	// Client that created the room joins the room. Mark room as true to indicate it is not empty.
+	s.joinRoom(username.Username, room.Name())
+	s.rooms[room] = true
 
 	return room
 }
 
-func (s *Server) roomExists(room_code string) bool {
+// Handles joining of a room. The given user is added to the room with the given room code.
+func (s *Server) joinRoom(username, room_code string) {
+	client := api.NewClient(username, nil)
+	room, _ := s.roomExists(room_code)
+
+	// Register the client into the room.
+	room.Register(client)
+}
+
+func (s *Server) roomExists(room_code string) (*api.Room, bool) {
 	for room := range s.rooms {
 		if room.Name() == fmt.Sprintf("%v", room_code) {
-			return true
+			return room, true
 		}
 	}
-	return false
+	return nil, false
 }
